@@ -1,52 +1,70 @@
+use std::collections::HashMap;
 use std::fs::File;
-use std::io::{BufReader, BufRead, Result, Write};
+use std::io::{BufReader, BufRead, Result};
+use petgraph::graph::{UnGraph};
+use petgraph::algo::dijkstra;
 
-fn read_data_file(filename: &str) -> Result<Vec<String>> {
+fn read_data_file(filename: &str) -> Result<Vec<(usize, usize)>> {
     let file = File::open(filename)?;
     let reader = BufReader::new(file);
-    let mut lines = Vec::new();
+    let mut edges = Vec::new();
 
     for line in reader.lines() {
-        lines.push(line?);
+        let line = line?;
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 2 {
+            if let (Ok(node1), Ok(node2)) = (parts[0].parse::<usize>(), parts[1].parse::<usize>()) {
+                edges.push((node1, node2));
+            }
+        }
     }
 
-    Ok(lines)
+    Ok(edges)
 }
 
-fn clean_data(data: Vec<String>) -> Vec<String> {
-    // Implement your data cleaning logic here
-    // For demonstration, let's just return the data as is
-    data
-}
+fn calculate_average_distance(edges: &[(usize, usize)]) -> f64 {
+    let mut graph = UnGraph::<usize, ()>::default();
+    let mut node_indices: HashMap<usize, _> = HashMap::new();
 
-fn write_cleaned_data(filename: &str, cleaned_data: &[String]) -> Result<()> {
-    let mut file = File::create(filename)?;
-    for line in cleaned_data {
-        writeln!(file, "{}", line)?;
+    for &(node1, node2) in edges {
+        let idx1 = *node_indices.entry(node1).or_insert_with(|| graph.add_node(node1));
+        let idx2 = *node_indices.entry(node2).or_insert_with(|| graph.add_node(node2));
+        graph.add_edge(idx1, idx2, ());
     }
-    Ok(())
+
+    let mut total_distance = 0;
+    let mut num_pairs = 0;
+    for node in graph.node_indices() {
+        let distances = dijkstra(&graph, node, None, |_| 1);
+        for (&target_node, &distance) in distances.iter() {
+            if target_node != node {
+                total_distance += distance;
+                num_pairs += 1;
+            }
+        }
+    }
+
+    if num_pairs > 0 {
+        total_distance as f64 / num_pairs as f64
+    } else {
+        0.0
+    }
 }
 
 fn main() {
-    let filename = "/Users/ysfsouayah/Downloads/twitter_combined.txt";
-    let cleaned_filename = "cleaned-twitter.txt";
+    let filename = "/Users/ysfsouayah/SP2024/DS210/Rust/final_project/cleaned-twitter.txt";
 
     // Read the data file
-    let data = match read_data_file(filename) {
-        Ok(data) => data,
+    let edges = match read_data_file(filename) {
+        Ok(edges) => edges,
         Err(err) => {
             eprintln!("Error reading data file: {}", err);
             return;
         }
     };
 
-    // Clean the data
-    let cleaned_data = clean_data(data);
+    // Calculate average distance
+    let average_distance = calculate_average_distance(&edges);
 
-    // Write the cleaned data to a new file
-    if let Err(err) = write_cleaned_data(cleaned_filename, &cleaned_data) {
-        eprintln!("Error writing cleaned data to file: {}", err);
-    } else {
-        println!("Cleaned data written to {}", cleaned_filename);
-    }
+    println!("Average distance between users: {:.2}", average_distance);
 }
