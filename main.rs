@@ -1,8 +1,10 @@
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, BufRead, Result};
-use petgraph::graph::{UnGraph};
+use std::collections::HashMap;
+use petgraph::graph::UnGraph;
 use petgraph::algo::dijkstra;
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 
 fn read_data_file(filename: &str) -> Result<Vec<(usize, usize)>> {
     let file = File::open(filename)?;
@@ -55,13 +57,21 @@ fn main() {
     let filename = "/Users/ysfsouayah/SP2024/DS210/Rust/final_project/cleaned-twitter.txt";
 
     // Read the data file
-    let edges = match read_data_file(filename) {
+    let mut edges = match read_data_file(filename) {
         Ok(edges) => edges,
         Err(err) => {
             eprintln!("Error reading data file: {}", err);
             return;
         }
     };
+
+    // Shuffle the edges randomly
+    let mut rng = thread_rng();
+    edges.shuffle(&mut rng);
+
+    // Take the first 1000 edges as a sample
+    let sample_size = 1000;
+    edges.truncate(sample_size);
 
     // Calculate average distance
     let average_distance = calculate_average_distance(&edges);
