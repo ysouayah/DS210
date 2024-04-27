@@ -1,8 +1,6 @@
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufReader, BufRead, Result};
-use std::collections::HashMap;
-use petgraph::graph::UnGraph;
-use petgraph::algo::dijkstra;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 
@@ -13,44 +11,63 @@ fn read_data_file(filename: &str) -> Result<Vec<(usize, usize)>> {
 
     for line in reader.lines() {
         let line = line?;
-        let parts: Vec<&str> = line.split_whitespace().collect();
+        let parts: Vec<usize> = line
+            .split_whitespace()
+            .filter_map(|s| s.parse().ok())
+            .collect();
         if parts.len() >= 2 {
-            if let (Ok(node1), Ok(node2)) = (parts[0].parse::<usize>(), parts[1].parse::<usize>()) {
-                edges.push((node1, node2));
-            }
+            edges.push((parts[0], parts[1]));
         }
     }
 
     Ok(edges)
 }
 
-fn calculate_average_distance(edges: &[(usize, usize)]) -> f64 {
-    let mut graph = UnGraph::<usize, ()>::default();
-    let mut node_indices: HashMap<usize, _> = HashMap::new();
+fn jaccard_similarity(set1: &HashSet<usize>, set2: &HashSet<usize>) -> f64 {
+    let intersection_size = set1.intersection(&set2).count() as f64;
+    let union_size = set1.union(&set2).count() as f64;
+    intersection_size / union_size
+}
 
+fn find_similar_dissimilar_users(edges: &[(usize, usize)]) -> Option<(usize, usize, f64)> {
+    let mut graph = HashMap::<usize, HashSet<usize>>::new();
+
+    // Create an adjacency list representation of the graph
     for &(node1, node2) in edges {
-        let idx1 = *node_indices.entry(node1).or_insert_with(|| graph.add_node(node1));
-        let idx2 = *node_indices.entry(node2).or_insert_with(|| graph.add_node(node2));
-        graph.add_edge(idx1, idx2, ());
+        graph.entry(node1).or_insert(HashSet::new()).insert(node2);
+        graph.entry(node2).or_insert(HashSet::new()).insert(node1);
     }
 
-    let mut total_distance = 0;
-    let mut num_pairs = 0;
-    for node in graph.node_indices() {
-        let distances = dijkstra(&graph, node, None, |_| 1);
-        for (&target_node, &distance) in distances.iter() {
-            if target_node != node {
-                total_distance += distance;
-                num_pairs += 1;
+    // Calculate Jaccard similarity for each pair of vertices
+    let mut similarity_map: HashMap<(usize, usize), f64> = HashMap::new();
+    for (&user1, friends1) in &graph {
+        for (&user2, friends2) in &graph {
+            if user1 != user2 {
+                let similarity = jaccard_similarity(friends1, friends2);
+                similarity_map.insert((user1, user2), similarity);
             }
         }
     }
 
-    if num_pairs > 0 {
-        total_distance as f64 / num_pairs as f64
-    } else {
-        0.0
+    // Find the pair with the highest similarity
+    let most_similar_pair = similarity_map.iter().max_by(|(_, &sim1), (_, &sim2)| sim1.partial_cmp(&sim2).unwrap());
+    // Find the pair with the lowest similarity
+    let most_dissimilar_pair = similarity_map.iter().min_by(|(_, &sim1), (_, &sim2)| sim1.partial_cmp(&sim2).unwrap());
+
+    // Print and return the most similar and dissimilar pairs
+    if let Some((&(user1, user2), &_)) = most_similar_pair {
+        println!("Users ({}, {}) have the same set of friends.", user1, user2);
     }
+
+    if let Some((&(user1, user2), &_)) = most_dissimilar_pair {
+        println!("Users({}, {}) have no friends in common", user1, user2);
+    }
+
+    if let Some((&(user1, user2), &similarity)) = most_similar_pair {
+        println!("Most similar or dissimilar users: ({}, {}) with similarity {}", user1, user2, similarity);
+    }
+
+    None
 }
 
 fn main() {
@@ -68,13 +85,13 @@ fn main() {
     // Shuffle the edges randomly
     let mut rng = thread_rng();
     edges.shuffle(&mut rng);
-
+    
     // Take the first 1000 edges as a sample
     let sample_size = 1000;
     edges.truncate(sample_size);
 
-    // Calculate average distance
-    let average_distance = calculate_average_distance(&edges);
-
-    println!("Average distance between users: {:.2}", average_distance);
+    // Find similar and dissimilar users
+    if let Some((user1, user2, similarity)) = find_similar_dissimilar_users(&edges) {
+        println!("Most similar or dissimilar users: ({}, {}) with similarity {}", user1, user2, similarity);
+    }
 }
