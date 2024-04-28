@@ -29,7 +29,60 @@ fn jaccard_similarity(set1: &HashSet<usize>, set2: &HashSet<usize>) -> f64 {
     intersection_size / union_size
 }
 
-fn find_similar_dissimilar_users(edges: &[(usize, usize)]) -> Option<(usize, usize, f64)> {
+fn calculate_global_clustering_coefficient(graph: &HashMap<usize, HashSet<usize>>) -> f64 {
+    let mut total_triangles = 0;
+    let mut total_possible_triangles = 0;
+
+    // Iterate over each node in the graph
+    for (_, neighbors) in graph {
+        let num_neighbors = neighbors.len();
+        if num_neighbors >= 2 {
+            // Count the number of triangles the current node participates in
+            let mut num_triangles = 0;
+            for &neighbor1 in neighbors {
+                for &neighbor2 in neighbors {
+                    if neighbor1 != neighbor2 && graph.contains_key(&neighbor1) && graph[&neighbor1].contains(&neighbor2) {
+                        num_triangles += 1;
+                    }
+                }
+            }
+            // Increment the total triangle count
+            total_triangles += num_triangles;
+            // Increment the total possible triangle count
+            total_possible_triangles += num_neighbors * (num_neighbors - 1) / 2;
+        }
+    }
+
+    // Calculate the global clustering coefficient
+    if total_possible_triangles > 0 {
+        total_triangles as f64 / total_possible_triangles as f64
+    } else {
+        0.0 // Return 0 if there are no possible triangles
+    }
+}
+
+fn degree_assortativity(graph: &HashMap<usize, HashSet<usize>>) -> f64 {
+    // Calculate the average degree of the network
+    let avg_degree: f64 = graph.values().map(|neighbors| neighbors.len() as f64).sum::<f64>() / graph.len() as f64;
+
+    // Calculate the correlation coefficient
+    let mut numer = 0.0;
+    let mut denom1 = 0.0;
+    let mut denom2 = 0.0;
+
+    for (node, neighbors) in graph {
+        for &neighbor in neighbors {
+            let deg_product = (graph[&node].len() as f64 - avg_degree) * (graph[&neighbor].len() as f64 - avg_degree);
+            numer += deg_product;
+            denom1 += deg_product.powi(2);
+            denom2 += (graph[&node].len() as f64 - avg_degree).powi(2) * (graph[&neighbor].len() as f64 - avg_degree).powi(2);
+        }
+    }
+
+    numer / (denom1 * denom2.sqrt())
+}
+
+fn find_similar_dissimilar_users(edges: &[(usize, usize)]) -> Option<(usize, usize, f64, f64)> {
     let mut graph = HashMap::<usize, HashSet<usize>>::new();
 
     // Create an adjacency list representation of the graph
@@ -73,18 +126,46 @@ fn find_similar_dissimilar_users(edges: &[(usize, usize)]) -> Option<(usize, usi
         let degree = graph.get(node).unwrap_or(&HashSet::new()).len();
         *degree_distribution.entry(degree).or_insert(0) += 1;
     }
-    println!("Degree Distribution:");
+
     let mut degree_vec: Vec<_> = degree_distribution.into_iter().collect();
-    degree_vec.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-    for (degree, count) in degree_vec {
-        println!("Degree {}: {}", degree, count);
+    degree_vec.sort_by_key(|&(degree, _)| degree);
+
+    // Print for degrees less than or equal to 10
+    for (degree, count) in degree_vec.iter().filter(|&(degree, _)| *degree <= 10) {
+        println!("{} people have {} friends", count, degree);
+    }
+
+    // Sum counts for degrees between 10 and 25
+    let between_10_and_25_friends_count: usize = degree_vec.iter()
+        .filter(|&(degree, _)| *degree > 10 && *degree <= 25)
+        .map(|&(_, count)| count)
+        .sum();
+    println!("{} people have between 10 and 25 friends", between_10_and_25_friends_count);
+
+    // Count for degrees more than 25
+    let over_25_friends_count: usize = degree_vec.iter()
+        .filter(|&(degree, _)| *degree > 25)
+        .map(|&(_, count)| count)
+        .sum();
+    println!("{} people have more than 25 friends", over_25_friends_count);
+
+    // Calculate clustering coefficient for the graph
+    let clustering_coefficient = calculate_global_clustering_coefficient(&graph);
+    println!("The clustering coefficient is {}, so people are not likely to be friends of friends.", clustering_coefficient);
+
+    // Calculate degree assortativity
+    let assortativity = degree_assortativity(&graph);
+    if assortativity > 0.5 {
+        println!("The Degree Assortativity is {}, so people are likely to be connected with friends of friends", assortativity);
+    } else {
+        println!("The Degree Assortativity is {}, so people are not likely to be connected with friends of friends", assortativity);
     }
 
     None
 }
 
 fn main() {
-    let filename = "/Users/ysfsouayah/SP2024/DS210/Rust/final_project/cleaned-twitter.txt";
+    let filename = "/Users/ysfsouayah/SP2024/DS210/Rust/final_project/cleaned-twitter.txt"; //Will change depending on where the file is located on your computer
 
     // Read the data file
     let mut edges = match read_data_file(filename) {
@@ -99,12 +180,12 @@ fn main() {
     let mut rng = thread_rng();
     edges.shuffle(&mut rng);
     
-    // Take the first 1000 edges as a sample
-    let sample_size = 1000;
+    // Take the first 10,000 edges as a sample
+    let sample_size = 10_000;
     edges.truncate(sample_size);
 
     // Find similar and dissimilar users
-    if let Some((user1, user2, similarity)) = find_similar_dissimilar_users(&edges) {
-        println!("Most similar or dissimilar users: ({}, {}) with similarity {}", user1, user2, similarity);
+    if let Some((user1, user2, similarity, clustering_coefficient)) = find_similar_dissimilar_users(&edges) {
+        println!("Most similar or dissimilar users: ({}, {}) with similarity {} and clustering coefficient {}", user1, user2, similarity, clustering_coefficient);
     }
 }
