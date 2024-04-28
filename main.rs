@@ -67,6 +67,19 @@ fn find_similar_dissimilar_users(edges: &[(usize, usize)]) -> Option<(usize, usi
         println!("Most similar or dissimilar users: ({}, {}) with similarity {}", user1, user2, similarity);
     }
 
+    // Calculate Degree Distribution
+    let mut degree_distribution: HashMap<usize, usize> = HashMap::new();
+    for node in graph.keys() {
+        let degree = graph.get(node).unwrap_or(&HashSet::new()).len();
+        *degree_distribution.entry(degree).or_insert(0) += 1;
+    }
+    println!("Degree Distribution:");
+    let mut degree_vec: Vec<_> = degree_distribution.into_iter().collect();
+    degree_vec.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    for (degree, count) in degree_vec {
+        println!("Degree {}: {}", degree, count);
+    }
+
     None
 }
 
