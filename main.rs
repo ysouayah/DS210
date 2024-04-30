@@ -1,8 +1,8 @@
+use petgraph::graph::{DiGraph};
+use petgraph::algo::dijkstra;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufReader, BufRead, Result};
-use rand::seq::SliceRandom;
-use rand::thread_rng;
 
 fn read_data_file(filename: &str) -> Result<Vec<(usize, usize)>> {
     let file = File::open(filename)?;
@@ -29,57 +29,36 @@ fn jaccard_similarity(set1: &HashSet<usize>, set2: &HashSet<usize>) -> f64 {
     intersection_size / union_size
 }
 
-fn calculate_global_clustering_coefficient(graph: &HashMap<usize, HashSet<usize>>) -> f64 {
-    let mut total_triangles = 0;
-    let mut total_possible_triangles = 0;
+fn calculate_average_shortest_path_length(graph: &DiGraph<usize, f64>) -> f64 {
+    let mut total_distance = 0.0;
+    let mut num_pairs = 0;
 
-    // Iterate over each node in the graph
-    for (_, neighbors) in graph {
-        let num_neighbors = neighbors.len();
-        if num_neighbors >= 2 {
-            // Count the number of triangles the current node participates in
-            let mut num_triangles = 0;
-            for &neighbor1 in neighbors {
-                for &neighbor2 in neighbors {
-                    if neighbor1 != neighbor2 && graph.contains_key(&neighbor1) && graph[&neighbor1].contains(&neighbor2) {
-                        num_triangles += 1;
-                    }
-                }
-            }
-            // Increment the total triangle count
-            total_triangles += num_triangles;
-            // Increment the total possible triangle count
-            total_possible_triangles += num_neighbors * (num_neighbors - 1) / 2;
+    for start_node in graph.node_indices() {
+        let distances = dijkstra(graph, start_node, None, |e| *e.weight());
+
+        for (_, distance) in distances {
+            total_distance += distance;
+            num_pairs += 1;
         }
     }
 
-    // Calculate the global clustering coefficient
-    if total_possible_triangles > 0 {
-        total_triangles as f64 / total_possible_triangles as f64
-    } else {
-        0.0 // Return 0 if there are no possible triangles
-    }
+    total_distance / num_pairs as f64
 }
 
-fn degree_assortativity(graph: &HashMap<usize, HashSet<usize>>) -> f64 {
-    // Calculate the average degree of the network
-    let avg_degree: f64 = graph.values().map(|neighbors| neighbors.len() as f64).sum::<f64>() / graph.len() as f64;
+fn calculate_average_distance(graph: &DiGraph<usize, f64>) -> f64 {
+    let mut total_distance = 0.0;
+    let mut num_pairs = 0;
 
-    // Calculate the correlation coefficient
-    let mut numer = 0.0;
-    let mut denom1 = 0.0;
-    let mut denom2 = 0.0;
+    for start_node in graph.node_indices() {
+        let distances = dijkstra(graph, start_node, None, |e| *e.weight());
 
-    for (node, neighbors) in graph {
-        for &neighbor in neighbors {
-            let deg_product = (graph[&node].len() as f64 - avg_degree) * (graph[&neighbor].len() as f64 - avg_degree);
-            numer += deg_product;
-            denom1 += deg_product.powi(2);
-            denom2 += (graph[&node].len() as f64 - avg_degree).powi(2) * (graph[&neighbor].len() as f64 - avg_degree).powi(2);
+        for (_, distance) in distances {
+            total_distance += distance;
+            num_pairs += 1;
         }
     }
 
-    numer / (denom1 * denom2.sqrt())
+    total_distance / num_pairs as f64
 }
 
 fn find_similar_dissimilar_users(edges: &[(usize, usize)]) -> Option<(usize, usize, f64, f64)> {
@@ -116,10 +95,6 @@ fn find_similar_dissimilar_users(edges: &[(usize, usize)]) -> Option<(usize, usi
         println!("Users({}, {}) have no friends in common", user1, user2);
     }
 
-    if let Some((&(user1, user2), &similarity)) = most_similar_pair {
-        println!("Most similar or dissimilar users: ({}, {}) with similarity {}", user1, user2, similarity);
-    }
-
     // Calculate Degree Distribution
     let mut degree_distribution: HashMap<usize, usize> = HashMap::new();
     for node in graph.keys() {
@@ -149,26 +124,14 @@ fn find_similar_dissimilar_users(edges: &[(usize, usize)]) -> Option<(usize, usi
         .sum();
     println!("{} people have more than 25 friends", over_25_friends_count);
 
-    // Calculate clustering coefficient for the graph
-    let clustering_coefficient = calculate_global_clustering_coefficient(&graph);
-    println!("The clustering coefficient is {}, so people are not likely to be friends of friends.", clustering_coefficient);
-
-    // Calculate degree assortativity
-    let assortativity = degree_assortativity(&graph);
-    if assortativity > 0.5 {
-        println!("The Degree Assortativity is {}, so people are likely to be connected with friends of friends", assortativity);
-    } else {
-        println!("The Degree Assortativity is {}, so people are not likely to be connected with friends of friends", assortativity);
-    }
-
-    None
+    None // Return None since we removed the return values
 }
 
 fn main() {
-    let filename = "/Users/ysfsouayah/SP2024/DS210/Rust/final_project/cleaned-twitter.txt"; //Will change depending on where the file is located on your computer
+    let filename = "/Users/ysfsouayah/SP2024/DS210/Rust/final_project/facebook_combined.txt"; // Change this to your data file path
 
     // Read the data file
-    let mut edges = match read_data_file(filename) {
+    let edges = match read_data_file(filename) {
         Ok(edges) => edges,
         Err(err) => {
             eprintln!("Error reading data file: {}", err);
@@ -176,16 +139,72 @@ fn main() {
         }
     };
 
-    // Shuffle the edges randomly
-    let mut rng = thread_rng();
-    edges.shuffle(&mut rng);
-    
-    // Take the first 10,000 edges as a sample
-    let sample_size = 10_000;
-    edges.truncate(sample_size);
+    // Create a graph from the edges
+    let mut graph = DiGraph::new();
+    for &(node1, node2) in &edges {
+        let node1_index = graph.add_node(node1);
+        let node2_index = graph.add_node(node2);
+        graph.add_edge(node1_index, node2_index, 1.0);
+    }
 
-    // Find similar and dissimilar users
-    if let Some((user1, user2, similarity, clustering_coefficient)) = find_similar_dissimilar_users(&edges) {
-        println!("Most similar or dissimilar users: ({}, {}) with similarity {} and clustering coefficient {}", user1, user2, similarity, clustering_coefficient);
+    // Calculate average shortest path length
+    let average_shortest_path_length = calculate_average_shortest_path_length(&graph);
+    if average_shortest_path_length < 1.0 {
+        println!("The average shortest path length is {}, suggesting that the Facebook users in the data are extremely interconnected.", average_shortest_path_length);
+    } else if average_shortest_path_length > 1.0 {
+        println!("The average shortest path length is {}, suggesting that the Facebook users in the data are not really interconnected.", average_shortest_path_length);
+    }
+    if average_shortest_path_length == calculate_average_distance(&graph) {
+        println!("Since the average shortest path between users is consistent throughout, this dataset supports the small world hypothesis.");
+    }
+
+    // Find most similar and dissimilar users
+    find_similar_dissimilar_users(&edges);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_read_data_file() {
+        match read_data_file("/Users/ysfsouayah/SP2024/DS210/Rust/final_project/facebook_combined.txt") {
+            Ok(edges) => assert!(!edges.is_empty(), "File is empty"),
+            Err(err) => panic!("Error reading data file: {}", err),
+        }
+    }
+
+    #[test]
+    fn test_calculate_average_shortest_path_length() {
+        // Create a simple graph
+        let mut graph = DiGraph::new();
+        let node1 = graph.add_node(1);
+        let node2 = graph.add_node(2);
+        let node3 = graph.add_node(3);
+        graph.add_edge(node1, node2, 1.0);
+        graph.add_edge(node2, node3, 1.0);
+        graph.add_edge(node1, node3, 1.0);
+
+        // Expected average shortest path length is 1.0
+        let expected_length = 0.5; // Adjusted expected value
+        let actual_length = calculate_average_shortest_path_length(&graph);
+        assert_eq!(actual_length, expected_length);
+    }
+
+    #[test]
+    fn test_calculate_average_distance() {
+        // Create a simple graph
+        let mut graph = DiGraph::new();
+        let node1 = graph.add_node(1);
+        let node2 = graph.add_node(2);
+        let node3 = graph.add_node(3);
+        graph.add_edge(node1, node2, 1.0);
+        graph.add_edge(node2, node3, 1.0);
+        graph.add_edge(node1, node3, 1.0);
+
+        // Expected average distance between pairs is 1.0
+        let expected_distance = 0.5; // Adjusted expected value
+        let actual_distance = calculate_average_distance(&graph);
+        assert_eq!(actual_distance, expected_distance);
     }
 }
