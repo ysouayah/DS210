@@ -104,8 +104,10 @@ fn find_similar_dissimilar_users(edges: &[(usize, usize)]) -> Option<(usize, usi
 
     let mut degree_vec: Vec<_> = degree_distribution.into_iter().collect();
     degree_vec.sort_by_key(|&(degree, _)| degree);
+    //println!("{} people have {} friends", count, degree);
+    //Uncomment the line above if you want to see what the range of friends is
 
-    // Print for degrees less than or equal to 10
+    // Print for degrees less than or equal to 10. Starting here, comment everything until line 129 if you want to see all the degrees
     for (degree, count) in degree_vec.iter().filter(|&(degree, _)| *degree <= 10) {
         println!("{} people have {} friends", count, degree);
     }
